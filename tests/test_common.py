@@ -10,4 +10,11 @@ from lib._utils import *
 from lib import disk
 
 class DiskUtilsTest(unittest.TestCase):
-    pass
+    def disconnectDev(self, dev):
+        try:
+            dev.disconnect()
+            self.assertFalse(dev.connected())
+            self.assertTrue(dev.imagePath() is None)
+        except:
+            print "Cannot disconnect %s. Please do it manually." % \
+                    (dev.devicePath(),)

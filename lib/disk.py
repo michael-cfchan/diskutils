@@ -40,6 +40,13 @@ class LoopbackDevice(Device):
             return None
         return m.group()
 
+    @classmethod
+    def availableDevice(cls):
+        p = cls.availableDevicePath()
+        if not p:
+            return None
+        return cls(p)
+
     def connected(self):
         r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath_])
         if r == 0:
@@ -76,7 +83,6 @@ class LoopbackDevice(Device):
             raise Exception, "Cannot connect to %s. Ret code: %d" % \
                     (imagePath, r)
         self.imagePath_ = imagePath
-
 
     def disconnect(self):
         if not self.connected():
@@ -127,7 +133,7 @@ class DiskImage(object):
     def device(self):
         """
         Override in derived type to return a Disk object representing the disk
-        device for the image. For example, this could 
+        device for the image, and the device is ready for use. 
         """
         return None
 
@@ -190,9 +196,11 @@ class QemuDiskImage(DiskImage):
             return self.disk_
 
         # Note: Not concurrency safe
-        if self.imageType == QemuDiskImage.TYPE_RAW:
-
-            print "raw disk device"
+        if self.imageType_ == QemuDiskImage.TYPE_RAW:
+            dev = LoopbackDevice.availableDevice()
+            dev.connect(self.imagePath_)
+            return dev
+        return None
 
 class QemuRawDiskImage(QemuDiskImage):
     def __init__(self, imagePath):

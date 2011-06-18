@@ -50,18 +50,24 @@ class TestDisk(DiskUtilsTest):
             self.assertEqual(dev.imagePath(), self.qrImage.imagePath())
         finally:
             if connected:
-                try:
-                    dev.disconnect()
-                    self.assertFalse(dev.connected())
-                    self.assertTrue(dev.imagePath() is None)
-                except:
-                    print "Cannot disconnect %s. Please do it manually." % \
-                            (dev.devicePath(),)
-
+                self.disconnectDev(dev)
+                
     def test_illegal_device_connections(self):
         dev = Device("/foo")
         self.assertRaises(Exception, dev.connect)
         self.assertRaises(Exception, dev.disconnect)
+
+    def test_raw_image_device(self):
+        connected = False
+        try:
+            dev = self.qrImage.device()
+            self.assertTrue(dev is not None)
+            self.assertTrue(dev.connected())
+            connected = True
+            self.assertEqual(dev.imagePath(), self.qrImage.imagePath())
+        finally:
+            if connected:
+                self.disconnectDev(dev)
 
 if __name__ == "__main__":
     unittest.main()
