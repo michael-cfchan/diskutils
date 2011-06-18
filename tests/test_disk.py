@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from test_common import *
-from lib.disk import QemuRawDiskImage
+from lib.disk import *
 import unittest
 
 class TestDisk(DiskUtilsTest):
@@ -16,6 +16,52 @@ class TestDisk(DiskUtilsTest):
         
     def test_qemu_raw_disk_image(self):
         pass
+
+    def test_available_loopback(self):
+        """
+        If this fails, then either
+          1. user running the test has no permissions to sudo - used by the 
+             function LoopbackDevice.availableDevice(), or
+          2. there is no available loopback device.
+
+        Case 1 is more likely. If not, one can check for case 2 with the 
+        command
+            
+            losetup -a
+
+        which lists all loopback devices being used. It is easy to check 
+        with the list whether all the /dev/loopN devices are in use.
+        """
+        devPath = LoopbackDevice.availableDevicePath()
+        self.assertEqual(devPath[0:9], "/dev/loop")
+        dev = LoopbackDevice(devPath)
+        self.assertFalse(dev.connected())
+        self.assertTrue(dev.imagePath() is None)
+
+    def test_loopback_connections(self):
+        devPath = LoopbackDevice.availableDevicePath()
+        self.assertEqual(devPath[0:9], "/dev/loop")
+        dev = LoopbackDevice(devPath)
+        connected = False
+        try:
+            dev.connect(self.qrImage.imagePath())
+            connected = True
+            self.assertTrue(dev.connected())
+            self.assertEqual(dev.imagePath(), self.qrImage.imagePath())
+        finally:
+            if connected:
+                try:
+                    dev.disconnect()
+                    self.assertFalse(dev.connected())
+                    self.assertTrue(dev.imagePath() is None)
+                except:
+                    print "Cannot disconnect %s. Please do it manually." % \
+                            (dev.devicePath(),)
+
+    def test_illegal_device_connections(self):
+        dev = Device("/foo")
+        self.assertRaises(Exception, dev.connect)
+        self.assertRaises(Exception, dev.disconnect)
 
 if __name__ == "__main__":
     unittest.main()

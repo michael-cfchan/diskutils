@@ -7,14 +7,94 @@ perform their own synchronizations.
 """
 
 import os
+import re
 from _utils import *
 
-class Disk(object):
-    pass
+# {{{ Disk device
+class Device(object):
+    def __init__(self, devicePath):
+        self.devicePath_ = devicePath
 
+    def devicePath(self):
+        return self.devicePath_
+
+    def connect(self):
+        raise Exception, "Operation not supported on %s: connect" % \
+                self.__class__.__name__
+
+    def disconnect(self):
+        raise Exception, "Operation not supported on %s: disconnect" % \
+                self.__class__.__name__
+
+class LoopbackDevice(Device):
+    def __init__(self, devicePath):
+        super(LoopbackDevice, self).__init__(devicePath)
+        # Path to image connected to the device
+        self.imagePath_ = None
+
+    @classmethod
+    def availableDevicePath(cls):
+        r, s, e = subprocessPiped(["sudo", "losetup", "-f"])
+        m = re.match(r"/dev/loop[0-9]+",s)
+        if not m:
+            return None
+        return m.group()
+
+    def connected(self):
+        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath_])
+        if r == 0:
+            rep = r"%s:\s+\[\w+\]:[0-9]+\s+\((.+)\)" % (self.devicePath_,)
+            m = re.match(rep, s)
+            self.imagePath_ = os.path.realpath(m.groups()[0])
+            ret = True
+        elif r == 1:
+            self.imagePath_ = None
+            ret = False
+        else:
+            raise Exception, "Cannot verify if %s is connected" % \
+                    (self.devicePath_,)
+        return ret
+
+    def imagePath(self):
+        if self.connected():
+            return self.imagePath_
+        return None
+    
+    def connect(self, imagePath): 
+        if not os.path.isfile(imagePath):
+            raise Exception, "Source disk image does not exist: %s" % \
+                    (imagePath,)
+        if self.connected():
+            raise Exception, "Device already connected to %s" % \
+                    (self.imagePath_,)
+
+        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath(),
+                                  imagePath])
+        if r != 0:
+            print "loopback connect stdout:", s
+            print "loopback connect stderr:", e
+            raise Exception, "Cannot connect to %s. Ret code: %d" % \
+                    (imagePath, r)
+        self.imagePath_ = imagePath
+
+
+    def disconnect(self):
+        if not self.connected():
+            raise Exception, "Device is not connected."
+        r, s, e = subprocessPiped(["sudo", "losetup", "-d",
+                                   self.devicePath()])
+        if r != 0:
+            print "loopback disconnect stdout:", s
+            print "loopback disconnect stdout:", e
+            raise Exception, "Cannot disconnect from %s. Ret code: %d" % \
+                    (self.imagePath_, r)
+        self.imagePath_ = None
+# }}}
+
+# {{{ Disk image
 class DiskImage(object):
     def __init__(self, imagePath):
-        self.imagePath_ = imagePath
+        self.imagePath_ = os.path.realpath(imagePath)
         self.disk_ = None
         self._getSizes()
 
@@ -40,6 +120,9 @@ class DiskImage(object):
         else:
             self.diskSize_ = 0
             self.virtualSize = 0
+
+    def imagePath(self):
+        return self.imagePath_
 
     def device(self):
         """
@@ -99,7 +182,6 @@ class QemuDiskImage(DiskImage):
         if os.path.isfile(imagePath):
             os.remove(imagePath)
 
-    @property
     def imageType(self):
         return self.imageType_
 
@@ -109,6 +191,7 @@ class QemuDiskImage(DiskImage):
 
         # Note: Not concurrency safe
         if self.imageType == QemuDiskImage.TYPE_RAW:
+
             print "raw disk device"
 
 class QemuRawDiskImage(QemuDiskImage):
@@ -121,3 +204,4 @@ class QemuRawDiskImage(QemuDiskImage):
                                                    QemuDiskImage.TYPE_RAW,
                                                    virtualSize)
 
+# }}}
