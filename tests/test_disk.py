@@ -7,8 +7,8 @@ import unittest
 class TestDisk(DiskUtilsTest):
     def setUp(self):
         qrImage = QemuRawDiskImage.create("qrdisk1", "1G")
-        self.assertEqual(qrImage.virtualSize(), 1024*1024*1024)
-        self.assertEqual(qrImage.diskSize(), 0)
+        self.assertEqual(qrImage.virtualSize, 1024*1024*1024)
+        self.assertEqual(qrImage.diskSize, 0)
         self.qrImage = qrImage
 
     def tearDown(self):
@@ -35,8 +35,8 @@ class TestDisk(DiskUtilsTest):
         devPath = LoopbackDevice.availableDevicePath()
         self.assertEqual(devPath[0:9], "/dev/loop")
         dev = LoopbackDevice(devPath)
-        self.assertFalse(dev.connected())
-        self.assertTrue(dev.imagePath() is None)
+        self.assertFalse(dev.connected)
+        self.assertTrue(dev.imagePath is None)
 
     def test_loopback_connections(self):
         devPath = LoopbackDevice.availableDevicePath()
@@ -44,10 +44,10 @@ class TestDisk(DiskUtilsTest):
         dev = LoopbackDevice(devPath)
         connected = False
         try:
-            dev.connect(self.qrImage.imagePath())
+            dev.connect(self.qrImage.imagePath)
             connected = True
-            self.assertTrue(dev.connected())
-            self.assertEqual(dev.imagePath(), self.qrImage.imagePath())
+            self.assertTrue(dev.connected)
+            self.assertEqual(dev.imagePath, self.qrImage.imagePath)
         finally:
             if connected:
                 self.disconnectDev(dev)
@@ -60,14 +60,31 @@ class TestDisk(DiskUtilsTest):
     def test_raw_image_device(self):
         connected = False
         try:
-            dev = self.qrImage.device()
+            dev = self.qrImage.device
             self.assertTrue(dev is not None)
-            self.assertTrue(dev.connected())
+            self.assertTrue(dev.connected)
             connected = True
-            self.assertEqual(dev.imagePath(), self.qrImage.imagePath())
+            self.assertEqual(dev.imagePath, self.qrImage.imagePath)
         finally:
             if connected:
                 self.disconnectDev(dev)
 
+    def test_get_partition_table(self):
+        connected = False
+        try:
+            dev = self.qrImage.device
+            self.assertTrue(dev is not None)
+            self.assertTrue(dev.connected)
+            connected = True
+            self.assertTrue(dev.partitionTable is None)
+        finally:
+            if connected:
+                self.disconnectDev(dev)
+
+    def test_parse_partition_table(self):
+        dev = Device("/dev/sda")
+        dev.partitionTable
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -13,18 +13,64 @@ from _utils import *
 # {{{ Disk device
 class Device(object):
     def __init__(self, devicePath):
-        self.devicePath_ = devicePath
+        self.devicePath = devicePath
+        self.partitionTable_ = None
 
-    def devicePath(self):
-        return self.devicePath_
-
-    def connect(self):
+    def connect(self, imagePath):
         raise Exception, "Operation not supported on %s: connect" % \
                 self.__class__.__name__
 
     def disconnect(self):
         raise Exception, "Operation not supported on %s: disconnect" % \
                 self.__class__.__name__
+
+    @property
+    def partitionTable(self):
+        self._getPartitionTable()
+        return self.partitionTable_
+
+    def _getPartitionTable(self):
+        r, s, e = subprocessPiped(["sudo", "parted", self.devicePath,
+                                  "unit", "s",
+                                  "print"])
+        if r == 0:
+            lines = s.split('\n')
+            def _regexMatch(pattern, line):
+                m = re.match(pattern, line)
+                if not m:
+                    raise Exception, "Invalid partition table line: %s" % \
+                            (line,)
+                return m
+            m = _regexMatch(r"Model:\s+(.+)", lines[0])
+            model = m.groups()[0]
+            m = _regexMatch(r"Disk %s:\s([0-9]+)s" % (self.devicePath,),
+                         lines[1])
+            numSectors = m.groups()[0]
+            p = r"Sector size \(logical/physical\):\s+([0-9]+)B/([0-9]+)B"
+            m = _regexMatch(p, lines[2])
+            logicalSectorSize, physicalSectorSize = m.groups()
+            p = r"Partition Table:\s+(\w+)"
+            m = _regexMatch(p, lines[3])
+            tableType = m.groups()[0]
+            m = _regexMatch(r"", lines[4])
+            p = r"Number\s+Start\s+End\s+Size\s+Type\s+File system\s+Flags"
+            m = _regexMatch(p, lines[5])
+            partitions = []
+            for line in lines[6:]:
+                if line == '':
+                    break
+                p = r"\s*([0-9]+)\s+([0-9]+)s\s+([0-9]+)s\s+([0-9]+)s\s+" + \
+                    r"(\w+)(\s+(\w+)(\s+(\w+))?)?"
+                m = _regexMatch(p, line)
+                r = m.groups()
+                partitionNumber, startSector, endSector, sizeInSectors, \
+                        partitionType = r[:5]
+                fileSystem = r[-3]
+                flags = r[-1] 
+                #print partitionNumber, startSector, endSector, sizeInSectors,
+                #print partitionType, fileSystem, flags
+        else:
+            self.partitionTable_ = None
 
 class LoopbackDevice(Device):
     def __init__(self, devicePath):
@@ -47,23 +93,27 @@ class LoopbackDevice(Device):
             return None
         return cls(p)
 
+    @property
     def connected(self):
-        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath_])
+        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath])
         if r == 0:
-            rep = r"%s:\s+\[\w+\]:[0-9]+\s+\((.+)\)" % (self.devicePath_,)
+            rep = r"%s:\s+\[\w+\]:[0-9]+\s+\((.+)\)" % (self.devicePath,)
             m = re.match(rep, s)
             self.imagePath_ = os.path.realpath(m.groups()[0])
+            self._getPartitionTable()
             ret = True
         elif r == 1:
             self.imagePath_ = None
+            self.partitionTable_ = None
             ret = False
         else:
             raise Exception, "Cannot verify if %s is connected" % \
                     (self.devicePath_,)
         return ret
 
+    @property
     def imagePath(self):
-        if self.connected():
+        if self.connected:
             return self.imagePath_
         return None
     
@@ -71,11 +121,11 @@ class LoopbackDevice(Device):
         if not os.path.isfile(imagePath):
             raise Exception, "Source disk image does not exist: %s" % \
                     (imagePath,)
-        if self.connected():
+        if self.connected:
             raise Exception, "Device already connected to %s" % \
                     (self.imagePath_,)
 
-        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath(),
+        r, s, e = subprocessPiped(["sudo", "losetup", self.devicePath,
                                   imagePath])
         if r != 0:
             print "loopback connect stdout:", s
@@ -85,10 +135,10 @@ class LoopbackDevice(Device):
         self.imagePath_ = imagePath
 
     def disconnect(self):
-        if not self.connected():
+        if not self.connected:
             raise Exception, "Device is not connected."
         r, s, e = subprocessPiped(["sudo", "losetup", "-d",
-                                   self.devicePath()])
+                                   self.devicePath])
         if r != 0:
             print "loopback disconnect stdout:", s
             print "loopback disconnect stdout:", e
@@ -100,7 +150,7 @@ class LoopbackDevice(Device):
 # {{{ Disk image
 class DiskImage(object):
     def __init__(self, imagePath):
-        self.imagePath_ = os.path.realpath(imagePath)
+        self.imagePath = os.path.realpath(imagePath)
         self.disk_ = None
         self._getSizes()
 
@@ -109,8 +159,8 @@ class DiskImage(object):
         Linux-only. Will break in Windows and UNIX systems that do not provide
         the st_blocks
         """
-        if os.path.isfile(self.imagePath_):
-            stat = os.stat(self.imagePath_)
+        if os.path.isfile(self.imagePath):
+            stat = os.stat(self.imagePath)
 
             # See these links for why a multiplier of 512 is used on Linux:
             #
@@ -121,15 +171,13 @@ class DiskImage(object):
             # os.stat():
             # 
             # http://bugs.python.org/file22382/stat_result.patch
-            self.diskSize_ = stat.st_blocks * 512
+            self.diskSize = stat.st_blocks * 512
             self.virtualSize_ = stat.st_size 
         else:
-            self.diskSize_ = 0
+            self.diskSize = 0
             self.virtualSize = 0
 
-    def imagePath(self):
-        return self.imagePath_
-
+    @property
     def device(self):
         """
         Override in derived type to return a Disk object representing the disk
@@ -137,17 +185,16 @@ class DiskImage(object):
         """
         return None
 
+    @property
     def virtualSize(self):
         return self.virtualSize_
 
-    def virtualSizeIs(self, numBytes):
+    @virtualSize.setter
+    def virtualSize(self, numBytes):
         """
         Override in derived type to set the size of the disk image
         """
         raise Exception, "Virtual size cannot be changed."
-
-    def diskSize(self):
-        return self.diskSize_ 
 
     def cleanup(self):
         """
@@ -167,7 +214,7 @@ class QemuDiskImage(DiskImage):
 
     def __init__(self, imagePath, imageType):
         super(QemuDiskImage, self).__init__(imagePath)
-        self.imageType_ = imageType
+        self.imageType = imageType
 
     @classmethod
     def create(cls, imagePath, imageType, virtualSize):
@@ -188,17 +235,15 @@ class QemuDiskImage(DiskImage):
         if os.path.isfile(imagePath):
             os.remove(imagePath)
 
-    def imageType(self):
-        return self.imageType_
-
+    @property
     def device(self):
         if self.disk_:
             return self.disk_
 
         # Note: Not concurrency safe
-        if self.imageType_ == QemuDiskImage.TYPE_RAW:
+        if self.imageType == QemuDiskImage.TYPE_RAW:
             dev = LoopbackDevice.availableDevice()
-            dev.connect(self.imagePath_)
+            dev.connect(self.imagePath)
             return dev
         return None
 
